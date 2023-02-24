@@ -2,6 +2,7 @@ import tkinter as tk
 from PIL import Image, ImageDraw, ImageTk
 import numpy as np
 from sklearn.neighbors import kneighbors_graph
+import rasterio as rio
 
 import diffusion
 
@@ -13,9 +14,13 @@ class Paint(object):
 
     def __init__(self):
         self.root = tk.Tk()
+        self.low = None
+        self.high = None
 
-        self.partial_og = np.clip(np.load("al_0.npy") * 255, 0, 255).astype(np.uint8)
-        self.reference_og = np.clip(np.load("al_1.npy") * 255, 0, 255).astype(np.uint8)
+        # self.partial_og = np.clip(np.load("al_0.npy") * 255, 0, 255).astype(np.uint8)
+        self.partial_og = np.rollaxis(rio.open("al_1.tif").read(), 0, 3).astype(np.float32)
+        # self.reference_og = np.clip(np.load("al_1.npy") * 255, 0, 255).astype(np.uint8)
+        self.reference_og = np.rollaxis(rio.open("al_0.tif").read(), 0, 3).astype(np.float32)
         height, width = self.partial_og.shape[:2]
 
         self.pen_button = tk.Button(self.root, text='draw', command=self.use_pen)
@@ -30,13 +35,13 @@ class Paint(object):
         self.pil_mask = Image.new("RGB", (width, height), (255, 255, 255))
         self.pil_draw = ImageDraw.Draw(self.pil_mask)
 
-        self.partial_canvas = tk.Canvas(self.root, bg='white', width=width * self.SCALE, height=height * self.SCALE)
-        self.partial_canvas.grid(row=1, columnspan=4, column=4)
-        self.draw_background("partial", self.partial_og, self.partial_canvas)
-
         self.reference_canvas = tk.Canvas(self.root, bg='white', width=width * self.SCALE, height=height * self.SCALE)
         self.reference_canvas.grid(row=1, columnspan=4)
         self.draw_background("reference", self.reference_og, self.reference_canvas)
+
+        self.partial_canvas = tk.Canvas(self.root, bg='white', width=width * self.SCALE, height=height * self.SCALE)
+        self.partial_canvas.grid(row=1, columnspan=4, column=4)
+        self.draw_background("partial", self.partial_og, self.partial_canvas)
 
         self.diffused_canvas = tk.Canvas(self.root, bg='white', width=width * self.SCALE, height=height * self.SCALE)
         self.diffused_canvas.grid(row=1, columnspan=4, column=8)
@@ -45,6 +50,7 @@ class Paint(object):
         self.root.mainloop()
 
     def setup(self):
+        self.adjacency = None
         self.old_x = None
         self.old_y = None
         self.choose_size_button.set(self.DEFAULT_PEN_SIZE)
@@ -57,27 +63,40 @@ class Paint(object):
 
     def draw_background(self, name, array, canvas):
         if isinstance(array, np.ndarray):
+            rgb = array.copy()
+            if rgb.shape[-1] > 3:
+                rgb = rgb[..., [2, 1, 0]]
+            if rgb.dtype is not np.uint8:
+                if self.low is None or self.high is None:
+                    self.low, self.high = np.percentile(rgb.reshape(-1, rgb.shape[-1]), q=[1, 99])
+                    self.low -= .2 * (self.high - self.low)
+                    self.high += .2 * (self.high - self.low)
+                rgb = np.clip((rgb - self.low) / (self.high - self.low), 0, 1)
+                rgb = (255 * rgb).astype(np.uint8)
             self.__setattr__(name, ImageTk.PhotoImage(
-                image=Image.fromarray(array).resize([int(self.partial_og.shape[1] * self.SCALE),
-                                                     int(self.partial_og.shape[0] * self.SCALE)], Image.ANTIALIAS)))
+                image=Image.fromarray(rgb).resize([int(self.partial_og.shape[1] * self.SCALE),
+                                                   int(self.partial_og.shape[0] * self.SCALE)], Image.ANTIALIAS)))
         if hasattr(self, name):
             canvas.create_image(0, 0, image=self.__getattribute__(name), anchor="nw")
 
     def masked_partial(self):
         array = self.partial_og.copy()  # take the original but make it black where we have drawn it so
-        array[np.asarray(self.pil_mask)[..., 0] == 0] = [0, 0, 0]
+        array[np.asarray(self.pil_mask)[..., 0] == 0] = 0
         return array
 
     def graph_prop_completion(self):
-        reference_tensor = self.reference_og.copy()
-        a = kneighbors_graph(reference_tensor.reshape(-1, reference_tensor.shape[2]), 10,
-                             include_self=False)
-        a = a + a.T  # to make graph symmetric (using k neighbours in "either" rather than "mutual" mode)
-        a[a > 1] = 1  # get rid of any edges we just made double
+        if self.adjacency is None:
+            reference_tensor = self.reference_og.copy()
+            self.adjacency = kneighbors_graph(reference_tensor.reshape(-1, reference_tensor.shape[2]), 10,
+                                              include_self=False)
+            self.adjacency = self.adjacency + self.adjacency.T  # to make graph symmetric (using k neighbours in "either" rather than "mutual" mode)
+            self.adjacency[self.adjacency > 1] = 1  # get rid of any edges we just made double
+
         array = self.partial_og.copy().astype(float)  # make into float (in case integer diffusion weird)
-        array[np.asarray(self.pil_mask)[..., 0] == 0] = [0, 0, 0]
-        array = diffusion.graph_prop(a, array, (np.asarray(self.pil_mask)[..., 0] == 255).astype(int))
-        return np.clip(array, 0, 255).astype(np.uint8)
+        array[np.asarray(self.pil_mask)[..., 0] == 0] = 0
+        array = diffusion.graph_prop(self.adjacency, array, (np.asarray(self.pil_mask)[..., 0] == 255).astype(int),
+                                     iterative=False)
+        return array
 
     def use_pen(self):
         self.activate_button(self.pen_button)
