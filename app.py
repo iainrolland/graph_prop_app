@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.neighbors import kneighbors_graph
 import rasterio as rio
 
+from adj_utils import udlr
 import diffusion
 
 
@@ -17,10 +18,10 @@ class Paint(object):
         self.low = None
         self.high = None
 
-        # self.partial_og = np.clip(np.load("al_0.npy") * 255, 0, 255).astype(np.uint8)
-        self.partial_og = np.rollaxis(rio.open("al_1.tif").read(), 0, 3).astype(np.float32)
-        # self.reference_og = np.clip(np.load("al_1.npy") * 255, 0, 255).astype(np.uint8)
-        self.reference_og = np.rollaxis(rio.open("al_0.tif").read(), 0, 3).astype(np.float32)
+        # self.partial_og = np.clip(np.load("data/al_0.npy") * 255, 0, 255).astype(np.uint8)
+        self.partial_og = np.rollaxis(rio.open("data/bx_2.tif").read(), 0, 3).astype(np.float32)
+        # self.reference_og = np.clip(np.load("data/al_1.npy") * 255, 0, 255).astype(np.uint8)
+        self.reference_og = np.rollaxis(rio.open("data/bx_0.tif").read(), 0, 3).astype(np.float32)
         height, width = self.partial_og.shape[:2]
 
         self.pen_button = tk.Button(self.root, text='draw', command=self.use_pen)
@@ -91,11 +92,13 @@ class Paint(object):
                                               include_self=False)
             self.adjacency = self.adjacency + self.adjacency.T  # to make graph symmetric (using k neighbours in "either" rather than "mutual" mode)
             self.adjacency[self.adjacency > 1] = 1  # get rid of any edges we just made double
+            self.adjacency += udlr(reference_tensor.shape[:2]) * 3
 
         array = self.partial_og.copy().astype(float)  # make into float (in case integer diffusion weird)
-        array[np.asarray(self.pil_mask)[..., 0] == 0] = 0
-        array = diffusion.graph_prop(self.adjacency, array, (np.asarray(self.pil_mask)[..., 0] == 255).astype(int),
-                                     iterative=False)
+        if np.sum(np.asarray(self.pil_mask)[..., 0] == 0) != 0:  # if >= 1 pixel masked
+            array[np.asarray(self.pil_mask)[..., 0] == 0] = 0
+            array = diffusion.graph_prop(self.adjacency, array, (np.asarray(self.pil_mask)[..., 0] == 255).astype(int),
+                                     iterative=True)
         return array
 
     def use_pen(self):
