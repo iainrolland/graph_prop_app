@@ -18,10 +18,10 @@ class Paint(object):
         self.low = None
         self.high = None
 
-        # self.partial_og = np.clip(np.load("data/al_0.npy") * 255, 0, 255).astype(np.uint8)
-        self.partial_og = np.rollaxis(rio.open("data/bx_2.tif").read(), 0, 3).astype(np.float32)
-        # self.reference_og = np.clip(np.load("data/al_1.npy") * 255, 0, 255).astype(np.uint8)
-        self.reference_og = np.rollaxis(rio.open("data/bx_0.tif").read(), 0, 3).astype(np.float32)
+        # self.partial_og = np.rollaxis(rio.open("data/bx_2.tif").read(), 0, 3).astype(np.float32)
+        # self.reference_og = np.rollaxis(rio.open("data/bx_0.tif").read(), 0, 3).astype(np.float32)
+        self.partial_og = np.clip(np.load("data/al_1.npy") * 255, 0, 255).astype(np.uint8)
+        self.reference_og = np.clip(np.load("data/al_0.npy") * 255, 0, 255).astype(np.uint8)
         height, width = self.partial_og.shape[:2]
 
         self.pen_button = tk.Button(self.root, text='draw', command=self.use_pen)
