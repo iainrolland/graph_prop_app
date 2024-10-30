@@ -1,5 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import xarray as xr
+import rioxarray as rio
+
+
+def netcdf_to_tif(cdf_path, drop_bands=None):
+    nc_file = xr.open_dataset(cdf_path)
+    if drop_bands is None:
+        drop_bands = []
+    data = nc_file[[variable for variable in nc_file.keys() if variable not in drop_bands]]
+    data.rio.set_spatial_dims(x_dim="x", y_dim="y")
+    data.rio.to_raster(f"{cdf_path.split('.')[0]}.tif")
 
 
 def imageify(matrix, mask, shape, fill_value=np.nan):
@@ -71,6 +82,14 @@ def demo_slc_off():
     mask = slc_off_mask((400, 400))
     ax.matshow(mask)
     plt.show()
+
+
+def reverse_never_observed(features, reversing_mask):
+    if not features.ndim == 2:
+        raise ValueError("Expected 2-dimensional features. Input should be (#nodes, #features)")
+    output = np.zeros((reversing_mask.shape[0], features.shape[1]), dtype=features.dtype)
+    output[reversing_mask] = features
+    return output
 
 
 if __name__ == '__main__':

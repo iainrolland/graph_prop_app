@@ -3,6 +3,7 @@ from PIL import Image, ImageDraw, ImageTk
 import numpy as np
 from sklearn.neighbors import kneighbors_graph
 import rasterio as rio
+import matplotlib.pyplot as plt
 
 from adj_utils import udlr
 import diffusion
@@ -18,10 +19,9 @@ class Paint(object):
         self.low = None
         self.high = None
 
-        # self.partial_og = np.rollaxis(rio.open("data/bx_2.tif").read(), 0, 3).astype(np.float32)
-        # self.reference_og = np.rollaxis(rio.open("data/bx_0.tif").read(), 0, 3).astype(np.float32)
-        self.partial_og = np.clip(np.load("data/al_1.npy") * 255, 0, 255).astype(np.uint8)
-        self.reference_og = np.clip(np.load("data/al_0.npy") * 255, 0, 255).astype(np.uint8)
+        self.partial_og = np.rollaxis(rio.open("data/bx_2.tif").read(), 0, 3).astype(np.float32)
+        self.reference_og = np.rollaxis(rio.open("data/bx_0.tif").read(), 0, 3).astype(np.float32)
+
         height, width = self.partial_og.shape[:2]
 
         self.pen_button = tk.Button(self.root, text='draw', command=self.use_pen)
@@ -98,7 +98,7 @@ class Paint(object):
         if np.sum(np.asarray(self.pil_mask)[..., 0] == 0) != 0:  # if >= 1 pixel masked
             array[np.asarray(self.pil_mask)[..., 0] == 0] = 0
             array = diffusion.graph_prop(self.adjacency, array, (np.asarray(self.pil_mask)[..., 0] == 255).astype(int),
-                                     iterative=True)
+                                     iterative=False)
         return array
 
     def use_pen(self):
